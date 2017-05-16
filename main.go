@@ -13,7 +13,7 @@ import (
 
 const (
 	// Window title
-	WinTitle = "Go SDL2 Example"
+	WinTitle = "Go SDL2 Flappybird"
 	// Window width
 	WinWidth = 480
 	// Window height
@@ -183,8 +183,6 @@ func run() {
 
 	// Load resources
 	e.Load()
-
-	// Play music
 
 	var frame int = 0
 	var alpha uint8 = 255

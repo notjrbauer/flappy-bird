@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/veandco/go-sdl2/sdl"
 	img "github.com/veandco/go-sdl2/sdl_image"
 )
@@ -61,10 +60,7 @@ func (b *Bird) Paint(r *sdl.Renderer) error {
 func (b *Bird) Update() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	spew.Dump(b.x, b.y)
 	b.time++
-	//b.x += b.speed
-
 }
 
 func (b *Bird) Jump(r *sdl.Renderer) {
@@ -77,7 +73,4 @@ func (b *Bird) Destroy() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.texture.Destroy()
-	//for _, v := range b.textures {
-	//v.Destroy()
-	//}
 }

@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/veandco/go-sdl2/sdl"
 	img "github.com/veandco/go-sdl2/sdl_image"
 )
@@ -81,7 +80,6 @@ type pipe struct {
 }
 
 func NewPipe() *pipe {
-	spew.Dump(rand.Float32())
 	return &pipe{
 		x:      600,
 		w:      50,
