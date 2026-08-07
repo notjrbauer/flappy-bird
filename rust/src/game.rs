@@ -203,3 +203,140 @@ impl Game {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // `super::*` also re-exports the config constants glob-imported above.
+    use super::*;
+
+    #[test]
+    fn pipe_gap_edges() {
+        let p = Pipe { x: 0.0, gap_y: 400.0, scored: false };
+        assert_eq!(p.top_h(), 400.0 - PIPE_GAP / 2.0);
+        assert_eq!(p.bottom_y(), 400.0 + PIPE_GAP / 2.0);
+        // The gap between the edges is exactly PIPE_GAP.
+        assert_eq!(p.bottom_y() - p.top_h(), PIPE_GAP);
+    }
+
+    #[test]
+    fn rng_is_deterministic_and_in_unit_range() {
+        let mut a = Game::new();
+        let mut b = Game::new();
+        for _ in 0..1000 {
+            let x = a.rand();
+            assert!((0.0..1.0).contains(&x), "rand out of range: {x}");
+            assert_eq!(x, b.rand(), "same seed must give same sequence");
+        }
+    }
+
+    #[test]
+    fn flap_from_ready_starts_playing() {
+        let mut g = Game::new();
+        assert!(g.state == State::Ready);
+        g.flap();
+        assert!(g.state == State::Playing);
+        assert_eq!(g.bird_v, FLAP_V);
+    }
+
+    #[test]
+    fn flap_while_playing_applies_impulse() {
+        let mut g = Game::new();
+        g.state = State::Playing;
+        g.bird_v = 300.0; // falling
+        g.flap();
+        assert_eq!(g.bird_v, FLAP_V);
+        assert!(g.state == State::Playing);
+    }
+
+    #[test]
+    fn dead_tap_is_locked_out_then_resets() {
+        let mut g = Game::new();
+        g.state = State::Dead;
+        g.score = 4;
+        g.death_flash = 0.0; // too soon
+        g.flap();
+        assert!(g.state == State::Dead, "tap during lockout must not restart");
+
+        g.death_flash = 0.7; // past the lockout
+        g.flap();
+        assert!(g.state == State::Ready, "tap after lockout restarts");
+        assert_eq!(g.score, 0);
+    }
+
+    #[test]
+    fn scoring_increments_once_per_pipe() {
+        let mut g = Game::new();
+        // A pipe fully behind the bird should score exactly once.
+        g.pipes.push(Pipe { x: BIRD_X - PIPE_W - 1.0, gap_y: 400.0, scored: false });
+        g.check_score();
+        assert_eq!(g.score, 1);
+        assert!(g.pipes[0].scored);
+        g.check_score();
+        assert_eq!(g.score, 1, "already-scored pipe must not count again");
+    }
+
+    #[test]
+    fn pipe_not_yet_passed_does_not_score() {
+        let mut g = Game::new();
+        g.pipes.push(Pipe { x: BIRD_X, gap_y: 400.0, scored: false });
+        g.check_score();
+        assert_eq!(g.score, 0);
+    }
+
+    #[test]
+    fn ground_is_lethal_open_sky_is_not() {
+        let mut g = Game::new();
+        g.bird_y = H * 0.42; // mid-air, no pipes
+        assert!(!g.collides());
+
+        g.bird_y = GROUND_Y + BIRD_H; // well into the ground
+        assert!(g.collides());
+    }
+
+    #[test]
+    fn flying_through_the_gap_is_safe_hitting_a_pipe_is_not() {
+        let mut g = Game::new();
+        g.bird_y = 400.0;
+        // Pipe overlapping the bird horizontally, gap centered on the bird.
+        g.pipes.push(Pipe { x: BIRD_X - PIPE_W / 2.0, gap_y: 400.0, scored: false });
+        assert!(!g.collides(), "centered in the gap should be clear");
+
+        // Move the gap up so the bird is now inside the bottom pipe.
+        g.pipes[0].gap_y = 100.0;
+        assert!(g.collides(), "outside the gap should collide");
+    }
+
+    #[test]
+    fn ceiling_clamps_rather_than_kills() {
+        let mut g = Game::new();
+        g.state = State::Playing;
+        g.bird_y = -100.0; // above the top of the screen
+        g.bird_v = -200.0;
+        g.step(FIXED_DT);
+        let ceiling = BIRD_H / 2.0 - HIT_INSET_Y;
+        assert!(g.bird_y >= ceiling, "bird should be clamped at the ceiling");
+        assert!(g.state == State::Playing, "the ceiling is a wall, not a hazard");
+    }
+
+    #[test]
+    fn reset_preserves_best_and_clears_the_run() {
+        let mut g = Game::new();
+        g.best = 9;
+        g.score = 3;
+        g.state = State::Dead;
+        g.death_flash = 1.0;
+        g.reset();
+        assert!(g.state == State::Ready);
+        assert_eq!(g.best, 9, "best score survives a reset");
+        assert_eq!(g.score, 0);
+    }
+
+    #[test]
+    fn dying_records_a_new_best() {
+        let mut g = Game::new();
+        g.score = 7;
+        g.die();
+        assert!(g.state == State::Dead);
+        assert_eq!(g.best, 7);
+    }
+}

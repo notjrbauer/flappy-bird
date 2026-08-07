@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+# cdylib for the wasm artifact; rlib so `cargo test` can build a test harness.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2.126"

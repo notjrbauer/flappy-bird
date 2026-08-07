@@ -44,6 +44,19 @@ Output size:
 | `flappy_bg.wasm` | 56 KB | 26 KB |
 | `flappy.js` | 22 KB | — |
 
+## Tests
+
+The game logic (state machine, physics, collision, scoring) lives in
+`src/game.rs`, kept free of any DOM access, so it is unit-tested on the host
+target with no browser:
+
+```sh
+cargo test
+```
+
+The DOM-facing modules (`app`, `render`) are compiled only for `wasm32` and are
+`cfg`'d out on the host, so the test build stays lightweight.
+
 ## Run locally
 
 ```sh
