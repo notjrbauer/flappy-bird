@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Flappy Bird</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0d1b1e;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  #game {
+    /* Logical size is 480x800; scale down to fit small screens. */
+    width: min(480px, 100%, calc((100dvh - 90px) * 0.6));
+    aspect-ratio: 480 / 800;
+    height: auto;
+    display: block;
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .55);
+    image-rendering: pixelated;
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+  footer {
+    font-size: 12px;
+    color: #5b7078;
+    text-align: center;
+  }
+  footer a { color: #7fa6b0; }
+</style>
+</head>
+<body>
+  <canvas id="game" width="480" height="800"></canvas>
+  <footer>
+    click / tap / space to flap &middot;
+    <a href="https://github.com/notjrbauer/flappy-bird">source</a>
+  </footer>
+
+  <script type="module">
+    import init from "./pkg/flappy.js";
+    init().catch((e) => {
+      document.querySelector("footer").textContent = "failed to load: " + e;
+    });
+  </script>
+</body>
+</html>

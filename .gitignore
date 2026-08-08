@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Rust / wasm port (rust/)
+rust/target/
+rust/node_modules/
+rust/.wrangler/
+
+# Go build output (go/)
+go/flappy
