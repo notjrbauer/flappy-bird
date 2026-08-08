@@ -5,3 +5,6 @@
 rust/target/
 rust/node_modules/
 rust/.wrangler/
+
+# Go build output (go/)
+go/flappy

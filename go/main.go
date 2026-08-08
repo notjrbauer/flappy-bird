@@ -1,283 +1,263 @@
 package main
 
-import "C"
-
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 
 	"github.com/veandco/go-sdl2/sdl"
-	"github.com/veandco/go-sdl2/sdl_ttf"
+	"github.com/veandco/go-sdl2/ttf"
 )
 
 const (
-	// Window title
-	WinTitle = "Go SDL2 Flappybird"
-	// Window width
-	WinWidth = 480
-	// Window height
-	WinHeight = 800
+	winTitle  = "Go SDL2 Flappybird"
+	winWidth  = 480
+	winHeight = 800
 )
 
-// Game states
+// The world advances one fixed step of dt seconds per rendered frame.
 const (
-	StateRun = iota
-	StateFlap
-	StateDead
+	frameDelayMS = 16
+	dt           = float64(frameDelayMS) / 1000
 )
 
-var birdy int32
+// assetDir is resolved relative to the working directory; run from go/.
+const assetDir = "assets"
 
-// States text
-var stateText = map[int]string{
-	StateRun:  "RUN",
-	StateFlap: "FLAP",
-	StateDead: "DEAD",
+type gameState int
+
+const (
+	stateReady gameState = iota
+	statePlaying
+	stateDead
+)
+
+// stateLabel holds the overlay text per state; states without an entry
+// draw no text.
+var stateLabel = map[gameState]string{
+	stateReady: "READY",
+	stateDead:  "GAME OVER",
 }
 
-// SDL engine structure
+// Engine owns the SDL objects and the game state machine.
 type Engine struct {
-	State     int
-	Window    *sdl.Window
-	Renderer  *sdl.Renderer
-	Scene     *Scene
-	Entity    *Bird
-	Font      *ttf.Font
-	StateText map[int]*Text
+	state     gameState
+	window    *sdl.Window
+	renderer  *sdl.Renderer
+	scene     *Scene
+	font      *ttf.Font
+	stateText map[gameState]*text
 	running   bool
 }
 
-// State text structure
-type Text struct {
-	Width   int32
-	Height  int32
-	Texture *sdl.Texture
+// text is a pre-rendered label texture.
+type text struct {
+	w, h    int32
+	texture *sdl.Texture
 }
 
-// Returns new engine
-func NewEngine() (e *Engine) {
-	e = &Engine{}
-	e.running = true
-	return
+func NewEngine() *Engine {
+	return &Engine{running: true}
 }
 
-// Initializes SDL
+// Init initializes SDL and creates the window, renderer and scene.
 func (e *Engine) Init() error {
-	err := sdl.Init(sdl.INIT_EVERYTHING)
-	if err != nil {
-		return fmt.Errorf("could not initalize SDL: %v", err)
+	if err := sdl.Init(sdl.INIT_EVERYTHING); err != nil {
+		return fmt.Errorf("could not initialize SDL: %v", err)
 	}
 
 	if err := ttf.Init(); err != nil {
-		return fmt.Errorf("could not initalize TTF: %v", err)
+		return fmt.Errorf("could not initialize TTF: %v", err)
 	}
 
-	e.Window, err = sdl.CreateWindow(WinTitle, sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, WinWidth, WinHeight, sdl.WINDOW_SHOWN)
+	var err error
+	e.window, err = sdl.CreateWindow(winTitle, sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, winWidth, winHeight, sdl.WINDOW_SHOWN)
 	if err != nil {
-		return fmt.Errorf("could no create window: %v", err)
+		return fmt.Errorf("could not create window: %v", err)
 	}
 
-	e.Renderer, err = sdl.CreateRenderer(e.Window, -1, sdl.RENDERER_ACCELERATED)
-
+	e.renderer, err = sdl.CreateRenderer(e.window, -1, sdl.RENDERER_ACCELERATED)
 	if err != nil {
-		return fmt.Errorf("could no create renderer: %v", err)
+		return fmt.Errorf("could not create renderer: %v", err)
 	}
 
-	e.Scene, err = NewScene(e.Renderer)
-
+	e.scene, err = NewScene(e.renderer)
 	return err
 }
 
-// Destroys SDL and releases the memory
+// Destroy releases SDL resources; it tolerates a partially failed Init.
 func (e *Engine) Destroy() {
-	for _, v := range e.StateText {
-		v.Texture.Destroy()
+	for _, t := range e.stateText {
+		if err := t.texture.Destroy(); err != nil {
+			sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "destroy text: %s", err)
+		}
 	}
-
-	e.Font.Close()
-	e.Renderer.Destroy()
-	e.Window.Destroy()
-	e.Scene.Destroy()
+	if e.font != nil {
+		e.font.Close()
+	}
+	if e.scene != nil {
+		e.scene.Destroy()
+	}
+	if e.renderer != nil {
+		if err := e.renderer.Destroy(); err != nil {
+			sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "destroy renderer: %s", err)
+		}
+	}
+	if e.window != nil {
+		if err := e.window.Destroy(); err != nil {
+			sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "destroy window: %s", err)
+		}
+	}
 
 	ttf.Quit()
 	sdl.Quit()
 }
 
-// Quits main loop
+// Quit stops the main loop.
 func (e *Engine) Quit() {
 	e.running = false
 }
 
-// Checks if loop is running
+// Running reports whether the main loop should keep going.
 func (e *Engine) Running() bool {
 	return e.running
 }
 
-// Loads sprite
-//func (e *Engine) LoadSprite(file string) error {
-//  texture, err := img.LoadTexture(e.Renderer, file)
-//  e.Sprite = append(e.Sprite, texture)
-//  return err
-//}
+// Load opens the font and pre-renders the state labels.
+func (e *Engine) Load() error {
+	font, err := ttf.OpenFont(filepath.Join(assetDir, "fonts", "Flappy.ttf"), 24)
+	if err != nil {
+		return fmt.Errorf("could not open font: %v", err)
+	}
+	e.font = font
 
-//func (e *Engine) LoadBackground(file string) error {
-//  return err
-//}
-
-// Loads ttf font
-func (e *Engine) LoadFont(file string, size int) (err error) {
-	e.Font, err = ttf.OpenFont(file, size)
-	return
+	e.stateText = make(map[gameState]*text, len(stateLabel))
+	white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+	for state, label := range stateLabel {
+		texture, err := e.renderText(label, white)
+		if err != nil {
+			return fmt.Errorf("could not render %q: %v", label, err)
+		}
+		_, _, w, h, err := texture.Query()
+		if err != nil {
+			return fmt.Errorf("could not query %q texture: %v", label, err)
+		}
+		e.stateText[state] = &text{w: w, h: h, texture: texture}
+	}
+	return nil
 }
 
-// Loads resources
-func (e *Engine) Load() {
-	assetDir := filepath.Base("../assets/")
-
-	err := e.LoadFont(filepath.Join(assetDir, "fonts", "Flappy.ttf"), 24)
+// renderText renders a string to a texture using the loaded font.
+func (e *Engine) renderText(s string, color sdl.Color) (*sdl.Texture, error) {
+	surface, err := e.font.RenderUTF8Blended(s, color)
 	if err != nil {
-		sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "LoadTexture: %s\n", err)
-	}
-
-	e.StateText = map[int]*Text{}
-	for k, v := range stateText {
-		t, _ := e.RenderText(v, sdl.Color{0, 0, 0, 0})
-		_, _, tW, tH, _ := t.Query()
-		e.StateText[k] = &Text{tW, tH, t}
-	}
-}
-
-// Renders texture from ttf font
-func (e *Engine) RenderText(text string, color sdl.Color) (texture *sdl.Texture, err error) {
-	surface, err := e.Font.RenderUTF8_Blended(text, color)
-	if err != nil {
-		return
+		return nil, err
 	}
 	defer surface.Free()
 
-	texture, err = e.Renderer.CreateTextureFromSurface(surface)
-	return
+	return e.renderer.CreateTextureFromSurface(surface)
 }
 
-func run() {
-	runtime.LockOSThread()
-	e := NewEngine()
-
-	// Initialize SDL
-	err := e.Init()
-	if err != nil {
-		sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "Init: %s\n", err)
+// flap is the single input action: it starts a run, flaps mid-run and
+// restarts after a death.
+func (e *Engine) flap() {
+	switch e.state {
+	case stateReady:
+		e.state = statePlaying
+		e.scene.bird.Flap()
+	case statePlaying:
+		e.scene.bird.Flap()
+	case stateDead:
+		e.scene.Reset()
+		e.state = stateReady
 	}
-	defer e.Destroy()
+}
 
-	// Sprite size
-	const n = 128
+func (e *Engine) handleEvents() {
+	for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+		switch t := event.(type) {
+		case *sdl.QuitEvent:
+			e.Quit()
 
-	// Sprite rects
-	var rects []*sdl.Rect
-	for x := 0; x < 4; x++ {
-		rect := &sdl.Rect{int32(n * x), 0, n, n}
-		rects = append(rects, rect)
-	}
+		case *sdl.MouseButtonEvent:
+			if t.Type == sdl.MOUSEBUTTONDOWN && t.Button == sdl.BUTTON_LEFT {
+				e.flap()
+			}
 
-	// Load resources
-	e.Load()
-
-	var frame int = 0
-	var alpha uint8 = 255
-	var showText bool = true
-
-	var text *Text = e.StateText[StateRun]
-
-	for e.Running() {
-
-		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
-			switch t := event.(type) {
-			case *sdl.QuitEvent:
+		case *sdl.KeyboardEvent:
+			if t.Type != sdl.KEYDOWN || t.Repeat != 0 {
+				break
+			}
+			switch t.Keysym.Scancode {
+			case sdl.SCANCODE_SPACE, sdl.SCANCODE_W, sdl.SCANCODE_UP:
+				e.flap()
+			case sdl.SCANCODE_ESCAPE, sdl.SCANCODE_AC_BACK:
 				e.Quit()
-
-			case *sdl.MouseButtonEvent:
-				if t.Type == sdl.MOUSEBUTTONDOWN && t.Button == sdl.BUTTON_LEFT {
-					alpha = 255
-					showText = true
-
-					if e.State == StateRun {
-						text = e.StateText[StateFlap]
-						e.State = StateFlap
-					} else if e.State == StateFlap {
-						text = e.StateText[StateDead]
-						e.State = StateDead
-					} else if e.State == StateDead {
-						text = e.StateText[StateRun]
-						e.State = StateRun
-					}
-				}
-
-			case *sdl.KeyDownEvent:
-				s := sdl.GetKeyboardState()
-				if s[sdl.SCANCODE_A] != 0 {
-					e.Scene.bird.x -= 2
-				}
-				if s[sdl.SCANCODE_D] != 0 {
-					e.Scene.bird.x += 2
-				}
-
-				if s[sdl.SCANCODE_W] != 0 {
-					e.Scene.bird.y -= 2
-				}
-				if s[sdl.SCANCODE_S] != 0 {
-					e.Scene.bird.y += 2
-				}
-
-				if t.Keysym.Scancode == sdl.SCANCODE_ESCAPE || t.Keysym.Scancode == sdl.SCANCODE_AC_BACK {
-					e.Quit()
-				}
 			}
 		}
-
-		e.Scene.Update(e.Renderer)
-		e.Renderer.Clear()
-
-		w, h := e.Window.GetSize()
-		x, y := int32(w/2), int32(h/2)
-
-		switch e.State {
-		case StateRun:
-
-		case StateFlap:
-
-		case StateDead:
-		}
-
-		if showText {
-			text.Texture.SetAlphaMod(alpha)
-			e.Renderer.Copy(text.Texture, nil, &sdl.Rect{x - (text.Width / 2), y - n*1.5, text.Width, text.Height})
-		}
-
-		e.Scene.Paint(e.Renderer)
-		sdl.Delay(50)
-
-		frame += 1
-		if frame/2 >= 2 {
-			frame = 0
-		}
-
-		alpha -= 10
-		if alpha <= 10 {
-			alpha = 255
-			showText = false
-		}
 	}
 }
 
-// Exports function to C
-//export main2
-func main2() {
-	run()
+// update advances the world by one frame according to the current state.
+func (e *Engine) update() {
+	switch e.state {
+	case stateReady:
+		e.scene.bird.Animate()
+	case statePlaying:
+		e.scene.Update(dt)
+		if e.scene.Collides() {
+			e.state = stateDead
+		}
+	case stateDead:
+		e.scene.bird.Fall(dt)
+	}
 }
 
-// Go main function
+// paint draws the scene, overlays the state label and presents the frame.
+func (e *Engine) paint() error {
+	if err := e.scene.Paint(e.renderer); err != nil {
+		return err
+	}
+
+	if t, ok := e.stateText[e.state]; ok {
+		dst := &sdl.Rect{X: (winWidth - t.w) / 2, Y: winHeight / 3, W: t.w, H: t.h}
+		if err := e.renderer.Copy(t.texture, nil, dst); err != nil {
+			return fmt.Errorf("could not draw state text: %v", err)
+		}
+	}
+
+	e.renderer.Present()
+	return nil
+}
+
+func run() error {
+	runtime.LockOSThread()
+
+	e := NewEngine()
+	defer e.Destroy()
+
+	if err := e.Init(); err != nil {
+		return err
+	}
+	if err := e.Load(); err != nil {
+		return err
+	}
+
+	for e.Running() {
+		e.handleEvents()
+		e.update()
+		if err := e.paint(); err != nil {
+			return err
+		}
+		sdl.Delay(frameDelayMS)
+	}
+	return nil
+}
+
 func main() {
-	run()
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

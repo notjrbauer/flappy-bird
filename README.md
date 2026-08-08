@@ -4,24 +4,24 @@ Two implementations of the same game live in this repo:
 
 | Directory | Version | Renderer | Runs on |
 | --- | --- | --- | --- |
-| [`go/`](go/) | Original | SDL2 (cgo → native SDL2) | Desktop |
-| [`rust/`](rust/) | Port | canvas 2D (Rust → WebAssembly) | Browser |
+| [`go/`](go/) | Original | SDL2 (cgo to native SDL2) | Desktop |
+| [`rust/`](rust/) | Port | canvas 2D (Rust to WebAssembly) | Browser |
 
-The `go/` version is the original, preserved as-is. The `rust/` version is a
-WebAssembly port of it and is the one that gets deployed (as a Cloudflare
-Worker serving the wasm module and its assets).
+Both play the same: gravity, a flap impulse, and hit detection against the
+pipes and the ground. The `rust/` version is the one that gets deployed, as a
+Cloudflare Worker serving the wasm module and its assets.
 
-## `go/` — original SDL2 version
+## `go/`: original SDL2 version
 
 ```sh
 cd go
-go run *.go       # requires SDL2 + go-sdl2
+go run .          # requires the SDL2, SDL2_image and SDL2_ttf dev libraries
 ```
 
 Uses `github.com/veandco/go-sdl2` (cgo bindings to native SDL2). See
 [`go/README.md`](go/README.md).
 
-## `rust/` — WebAssembly port
+## `rust/`: WebAssembly port
 
 Rewrites the rendering layer against the canvas 2D API and compiles to
 WebAssembly with `wasm-bindgen`. Go's wasm target can't compile the original
@@ -42,5 +42,5 @@ cd rust
 npx wrangler deploy
 ```
 
-Full details — build requirements, the port notes, and known gaps — are in
-[`rust/README.md`](rust/README.md).
+Full details, including build requirements, the port notes, and known gaps,
+are in [`rust/README.md`](rust/README.md).

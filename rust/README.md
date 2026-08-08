@@ -1,11 +1,11 @@
-# Flappy Bird — WebAssembly
+# Flappy Bird: WebAssembly
 
 A rewrite of the original Go + SDL2 version, targeting WebAssembly via
 `wasm-bindgen` and the canvas 2D API. Runs in the browser; served from
 Cloudflare Workers as static assets.
 
 The `master` branch keeps the original Go/SDL2 source. This branch replaces the
-rendering layer only — the game is still a bird, some pipes, and a scrolling
+rendering layer only; the game is still a bird, some pipes, and a scrolling
 ground.
 
 ## Why a rewrite and not a recompile
@@ -42,7 +42,7 @@ Output size:
 | file | raw | gzipped |
 | --- | --- | --- |
 | `flappy_bg.wasm` | 56 KB | 26 KB |
-| `flappy.js` | 22 KB | — |
+| `flappy.js` | 22 KB | n/a |
 
 ## Tests
 
@@ -64,7 +64,7 @@ The DOM-facing modules (`app`, `render`) are compiled only for `wasm32` and are
 cd static && python3 -m http.server 8080
 ```
 
-Then open <http://localhost:8080>. A plain file:// open will not work — wasm
+Then open <http://localhost:8080>. A plain file:// open will not work: wasm
 modules have to be fetched over http(s).
 
 Or with the Workers runtime, which also exercises `src/worker.js`:
@@ -86,7 +86,7 @@ streaming instantiation to buffering), set cache headers, and redirect a bare
 mount path to its trailing-slash form.
 
 To attach it to a domain, a subdomain such as `flappy.example.com` is the
-simplest option — set it up as a custom domain on the Worker. Mounting at a
+simplest option: set it up as a custom domain on the Worker. Mounting at a
 path (`example.com/flappy*`) also works via a route, since more specific routes
 take precedence over a catch-all, but the trailing-slash redirect in the Worker
 matters in that case.
@@ -103,7 +103,7 @@ src/app.rs        boot: canvas, input, assets, the render loop
 src/worker.js     asset serving, MIME and cache headers
 static/index.html host page
 static/assets/    sprite sheet and pipe texture
-static/pkg/       build output — regenerate, don't edit
+static/pkg/       build output: regenerate, don't edit
 build.sh          cargo -> wasm-bindgen -> wasm-opt
 ```
 
@@ -117,7 +117,7 @@ slightly off.
   box on the same 28px stride, which picked up padding.
 - Ground: the 168x56 striped base strip at (292, 0). The original used a flat
   green slice of the background, so the scroll was invisible.
-- Pipe: `pipe.png` is 52x320 — a 24px cap at full width, then a body inset 2px
+- Pipe: `pipe.png` is 52x320: a 24px cap at full width, then a body inset 2px
   per side. The original stretched the whole texture into an arbitrary-height
   rect, squashing the cap. The cap is now fixed height with only the body
   stretched, and the top pipe is the same sprite mirrored by a canvas transform.

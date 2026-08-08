@@ -1,76 +1,117 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
-	"sync"
 
+	"github.com/veandco/go-sdl2/img"
 	"github.com/veandco/go-sdl2/sdl"
-	img "github.com/veandco/go-sdl2/sdl_image"
 )
 
-const jumpSpeed = 5
+// Bird geometry and physics, in window pixels and seconds.
+const (
+	birdX      = 120 // fixed horizontal position of the sprite's left edge
+	birdW      = 60
+	birdH      = 43
+	birdStartY = winHeight * 42 / 100
+
+	gravity      = 1500 // px/s^2
+	flapSpeed    = 450  // px/s, upward
+	maxFallSpeed = 700  // px/s
+
+	// The hitbox is inset from the drawn sprite so near-misses feel fair.
+	hitInsetX = 8
+	hitInsetY = 6
+)
 
 type Bird struct {
-	mu      sync.RWMutex
-	time    int
-	speed   int32
-	x, y    int32
-	w, h    int32
+	y, vy   float64
+	frame   int
 	texture *sdl.Texture
 	rects   []*sdl.Rect
 }
 
 func NewBird(r *sdl.Renderer) (*Bird, error) {
-	var rects []*sdl.Rect
-	assetDir := filepath.Base("../assets/")
-
 	texture, err := img.LoadTexture(r, filepath.Join(assetDir, "imgs", "FlappySprite.png"))
 	if err != nil {
-		sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "Loading sprite: %s\n", err)
+		return nil, fmt.Errorf("could not load bird sprite: %v", err)
 	}
 
+	// Three wing frames sharing a row of the atlas.
+	var rects []*sdl.Rect
 	for i := 0; i < 3; i++ {
-		rect := &sdl.Rect{int32(28 * i), 490, 20, 20}
-		rects = append(rects, rect)
+		rects = append(rects, &sdl.Rect{X: int32(28 * i), Y: 490, W: 20, H: 20})
 	}
 
-	sy := int32(WinHeight / 2)
-	b := &Bird{x: 0, y: sy, w: 60, h: 43, speed: 1, rects: rects, texture: texture}
-
-	return b, nil
+	return &Bird{y: birdStartY, texture: texture, rects: rects}, nil
 }
 
 func (b *Bird) Paint(r *sdl.Renderer) error {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	i := b.time / 2 % len(b.rects)
-
-	rect := &sdl.Rect{X: b.x, Y: b.y, W: b.w, H: b.h}
-
-	err := r.Copy(b.texture, b.rects[i], rect)
-	if err != nil {
-		sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "Paint: %s\n", err)
-		return err
+	i := b.frame / 6 % len(b.rects)
+	dst := &sdl.Rect{X: birdX, Y: int32(b.y), W: birdW, H: birdH}
+	if err := r.Copy(b.texture, b.rects[i], dst); err != nil {
+		return fmt.Errorf("could not copy bird: %v", err)
 	}
-
 	return nil
 }
 
-func (b *Bird) Update() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.time++
+// Animate advances the wing animation without moving the bird.
+func (b *Bird) Animate() {
+	b.frame++
 }
 
-func (b *Bird) Jump(r *sdl.Renderer) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.speed = -jumpSpeed
+// Flap gives the bird its upward impulse.
+func (b *Bird) Flap() {
+	b.vy = -flapSpeed
+}
+
+// Update integrates gravity for one step. The ceiling clamps rather
+// than kills, matching the original game.
+func (b *Bird) Update(dt float64) {
+	b.Animate()
+
+	b.vy += gravity * dt
+	if b.vy > maxFallSpeed {
+		b.vy = maxFallSpeed
+	}
+	b.y += b.vy * dt
+
+	if b.y < -hitInsetY {
+		b.y = -hitInsetY
+		if b.vy < 0 {
+			b.vy = 0
+		}
+	}
+}
+
+// Fall drops the dead bird until it rests on the ground.
+func (b *Bird) Fall(dt float64) {
+	b.vy += gravity * dt
+	if b.vy > maxFallSpeed {
+		b.vy = maxFallSpeed
+	}
+	b.y += b.vy * dt
+
+	if b.y > groundY-birdH {
+		b.y = groundY - birdH
+		b.vy = 0
+	}
+}
+
+// hitbox returns the bird's collision AABB.
+func (b *Bird) hitbox() (x, y, w, h float64) {
+	return birdX + hitInsetX, b.y + hitInsetY, birdW - 2*hitInsetX, birdH - 2*hitInsetY
+}
+
+// Reset puts the bird back at its starting position.
+func (b *Bird) Reset() {
+	b.y = birdStartY
+	b.vy = 0
+	b.frame = 0
 }
 
 func (b *Bird) Destroy() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.texture.Destroy()
+	if err := b.texture.Destroy(); err != nil {
+		sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "destroy bird texture: %s", err)
+	}
 }

@@ -2,51 +2,95 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"path/filepath"
-	"sync"
-	"time"
 
+	"github.com/veandco/go-sdl2/img"
 	"github.com/veandco/go-sdl2/sdl"
-	img "github.com/veandco/go-sdl2/sdl_image"
+)
+
+// Pipe layout and movement, in window pixels and seconds.
+const (
+	pipeW       = 78
+	pipeGap     = 200 // vertical opening between the two halves of a pair
+	pipeSpacing = 230 // horizontal distance between consecutive pairs
+	pipeSpeed   = 165 // px/s, leftward
+	gapMargin   = 90  // minimum distance from a gap edge to ceiling or ground
+
+	// Horizontal lead-in before the first pair appears.
+	firstPipeDelay = 80
 )
 
 type Pipes struct {
-	mu      sync.RWMutex
-	speed   int32
 	pipes   []*pipe
+	spawnX  float64
 	texture *sdl.Texture
 }
 
+// pipe is one top-and-bottom pair.
+type pipe struct {
+	x    float64
+	gapY float64 // vertical center of the opening
+}
+
 func NewPipes(r *sdl.Renderer) (*Pipes, error) {
-	assetDir := filepath.Base("../assets/")
-	t, err := img.LoadTexture(r, filepath.Join(assetDir, "imgs", "pipe.png"))
+	texture, err := img.LoadTexture(r, filepath.Join(assetDir, "imgs", "pipe.png"))
 	if err != nil {
-		sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "NewPipes: %s\n", err)
-		return nil, err
+		return nil, fmt.Errorf("could not load pipe sprite: %v", err)
 	}
 
-	ps := &Pipes{
-		texture: t,
-		speed:   2,
+	return &Pipes{texture: texture, spawnX: winWidth + firstPipeDelay}, nil
+}
+
+func newPipe() *pipe {
+	span := float64(groundY - 2*gapMargin - pipeGap)
+	return &pipe{
+		x:    winWidth + pipeW,
+		gapY: gapMargin + pipeGap/2 + rand.Float64()*span,
+	}
+}
+
+// Update scrolls the pipes, spawns a new pair on schedule and drops
+// pairs that have left the screen.
+func (ps *Pipes) Update(dt float64) {
+	for _, p := range ps.pipes {
+		p.x -= pipeSpeed * dt
 	}
 
-	go func() {
-		for {
-			ps.mu.Lock()
-			ps.pipes = append(ps.pipes, NewPipe())
-			ps.mu.Unlock()
-			time.Sleep(time.Second)
+	ps.spawnX -= pipeSpeed * dt
+	if ps.spawnX <= winWidth {
+		ps.pipes = append(ps.pipes, newPipe())
+		ps.spawnX = winWidth + pipeSpacing
+	}
+
+	kept := ps.pipes[:0]
+	for _, p := range ps.pipes {
+		if p.x+pipeW > 0 {
+			kept = append(kept, p)
 		}
-	}()
+	}
+	ps.pipes = kept
+}
 
-	return ps, nil
+// Hits reports whether the AABB overlaps any pipe.
+func (ps *Pipes) Hits(x, y, w, h float64) bool {
+	for _, p := range ps.pipes {
+		if x+w > p.x && x < p.x+pipeW {
+			if y < p.topH() || y+h > p.bottomY() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Reset removes all pipes and restores the initial spawn delay.
+func (ps *Pipes) Reset() {
+	ps.pipes = nil
+	ps.spawnX = winWidth + firstPipeDelay
 }
 
 func (ps *Pipes) Paint(r *sdl.Renderer) error {
-	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-
 	for _, p := range ps.pipes {
 		if err := p.paint(r, ps.texture); err != nil {
 			return err
@@ -55,51 +99,35 @@ func (ps *Pipes) Paint(r *sdl.Renderer) error {
 	return nil
 }
 
-func (ps *Pipes) Update() {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	for _, p := range ps.pipes {
-		p.mu.Lock()
-		p.x -= 5
-		p.mu.Unlock()
-	}
-}
 func (ps *Pipes) Destroy() {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
-	ps.texture.Destroy()
-}
-
-type pipe struct {
-	mu     sync.RWMutex
-	x      int32
-	w      int32
-	h      int32
-	invert bool
-}
-
-func NewPipe() *pipe {
-	return &pipe{
-		x:      600,
-		w:      50,
-		h:      100 + int32(rand.Intn(300)),
-		invert: rand.Float32() > 0.5,
+	if err := ps.texture.Destroy(); err != nil {
+		sdl.LogError(sdl.LOG_CATEGORY_APPLICATION, "destroy pipe texture: %s", err)
 	}
+}
+
+// topH is the height of the top pipe (the gap's upper edge).
+func (p *pipe) topH() float64 {
+	return p.gapY - pipeGap/2
+}
+
+// bottomY is where the bottom pipe starts (the gap's lower edge).
+func (p *pipe) bottomY() float64 {
+	return p.gapY + pipeGap/2
 }
 
 func (p *pipe) paint(r *sdl.Renderer, t *sdl.Texture) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	rect := &sdl.Rect{X: p.x, Y: 800 - p.h, W: p.w, H: p.h}
+	x := int32(p.x)
 
-	flip := sdl.FLIP_NONE
-	if p.invert {
-		rect.Y = 0
-		flip = sdl.FLIP_VERTICAL
+	// The source sprite has its cap at the top, so the top pipe is
+	// drawn flipped to put the cap at the gap.
+	top := &sdl.Rect{X: x, Y: 0, W: pipeW, H: int32(p.topH())}
+	if err := r.CopyEx(t, nil, top, 0, nil, sdl.FLIP_VERTICAL); err != nil {
+		return fmt.Errorf("could not copy top pipe: %v", err)
 	}
-	if err := r.CopyEx(t, nil, rect, 0, nil, flip); err != nil {
-		return fmt.Errorf("could not copy background: %v", err)
+
+	bottom := &sdl.Rect{X: x, Y: int32(p.bottomY()), W: pipeW, H: groundY - int32(p.bottomY())}
+	if err := r.Copy(t, nil, bottom); err != nil {
+		return fmt.Errorf("could not copy bottom pipe: %v", err)
 	}
 	return nil
 }
