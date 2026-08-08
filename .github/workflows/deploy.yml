@@ -1,0 +1,25 @@
+name: Deploy
+
+# The wasm build output under rust/static/pkg/ is committed, so deploying
+# only needs wrangler; no Rust toolchain in CI.
+on:
+  push:
+    branches: [wasm]
+    paths:
+      - 'rust/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deploy Worker
+        working-directory: rust
+        run: npx wrangler@4 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
