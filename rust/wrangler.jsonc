@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "flappy",
+  "account_id": "4e7f86c09a6f72a3df073e7dedf861aa",
   "compatibility_date": "2026-08-07",
   "main": "src/worker.js",
   "assets": {
