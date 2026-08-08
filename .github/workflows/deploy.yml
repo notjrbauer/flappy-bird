@@ -4,7 +4,7 @@ name: Deploy
 # only needs wrangler; no Rust toolchain in CI.
 on:
   push:
-    branches: [wasm]
+    branches: [master]
     paths:
       - 'rust/**'
       - '.github/workflows/deploy.yml'
