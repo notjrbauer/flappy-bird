@@ -4,16 +4,21 @@
 use crate::config::*;
 use crate::storage::{load_best, save_best};
 
-#[derive(Clone, Copy, PartialEq)]
+/// Top-level game state; both input and stepping branch on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
+    /// Bobbing on the title screen, waiting for the first flap.
     Ready,
     Playing,
     Dead,
 }
 
+/// One pipe pair: a left edge and the vertical centre of its gap.
+#[derive(Clone, Debug)]
 pub struct Pipe {
     pub x: f64,
     pub gap_y: f64,
+    /// Set once the bird has passed, so a pipe scores only once.
     pub scored: bool,
 }
 
@@ -28,25 +33,32 @@ impl Pipe {
     }
 }
 
+/// The whole simulation: bird, pipes, score, and timers. No DOM access.
+#[derive(Debug)]
 pub struct Game {
     pub state: State,
     pub bird_y: f64,
     pub bird_v: f64,
+    /// Bird rotation in radians; follows velocity.
     pub rot: f64,
+    /// Wing-flap animation clock.
     pub anim: f64,
     pub pipes: Vec<Pipe>,
+    /// Scrolls left with the pipes; a new pipe spawns when it crosses `W`.
     pub spawn_x: f64,
     pub ground_off: f64,
     pub score: u32,
     pub best: u32,
     pub time: f64,
+    /// Seconds since death; drives the impact flash and the restart lockout.
     pub death_flash: f64,
     rng: u32,
 }
 
 impl Game {
+    /// A fresh game in [`State::Ready`], with the persisted best score loaded.
     pub fn new() -> Self {
-        Game {
+        Self {
             state: State::Ready,
             bird_y: H * 0.42,
             bird_v: 0.0,
@@ -76,7 +88,7 @@ impl Game {
     fn reset(&mut self) {
         let best = self.best;
         let rng = self.rng;
-        *self = Game::new();
+        *self = Self::new();
         self.best = best;
         self.rng = rng;
     }
@@ -128,7 +140,7 @@ impl Game {
                 };
                 self.rot += (target - self.rot) * (1.0 - (-10.0 * dt).exp());
 
-                for p in self.pipes.iter_mut() {
+                for p in &mut self.pipes {
                     p.x -= PIPE_SPEED * dt;
                 }
                 self.spawn_x -= PIPE_SPEED * dt;
@@ -152,12 +164,13 @@ impl Game {
             }
             State::Dead => {
                 self.death_flash += dt;
-                if self.bird_y < GROUND_Y - BIRD_H / 2.0 {
+                let rest_y = GROUND_Y - BIRD_H / 2.0;
+                if self.bird_y < rest_y {
                     self.bird_v = (self.bird_v + GRAVITY * dt).min(MAX_FALL);
                     self.bird_y += self.bird_v * dt;
                     self.rot = (self.rot + 4.0 * dt).min(1.6);
                 } else {
-                    self.bird_y = GROUND_Y - BIRD_H / 2.0;
+                    self.bird_y = rest_y;
                     self.rot = 1.6;
                 }
             }
@@ -165,7 +178,7 @@ impl Game {
     }
 
     fn check_score(&mut self) {
-        for p in self.pipes.iter_mut() {
+        for p in &mut self.pipes {
             if !p.scored && p.x + PIPE_W < BIRD_X {
                 p.scored = true;
                 self.score += 1;
@@ -179,18 +192,15 @@ impl Game {
         let bw = BIRD_W - HIT_INSET_X * 2.0;
         let bh = BIRD_H - HIT_INSET_Y * 2.0;
 
-        // The ceiling is a wall, not a hazard — same as the original game.
+        // The ceiling is a wall, not a hazard; same as the original game.
         if by + bh >= GROUND_Y {
             return true;
         }
-        for p in &self.pipes {
-            if bx + bw > p.x && bx < p.x + PIPE_W {
-                if by < p.top_h() || by + bh > p.bottom_y() {
-                    return true;
-                }
-            }
-        }
-        false
+        // A pipe kills only if the bird overlaps it horizontally and sits
+        // outside the gap vertically.
+        self.pipes.iter().any(|p| {
+            bx + bw > p.x && bx < p.x + PIPE_W && (by < p.top_h() || by + bh > p.bottom_y())
+        })
     }
 
     fn die(&mut self) {
@@ -204,6 +214,12 @@ impl Game {
     }
 }
 
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // `super::*` also re-exports the config constants glob-imported above.
@@ -211,7 +227,11 @@ mod tests {
 
     #[test]
     fn pipe_gap_edges() {
-        let p = Pipe { x: 0.0, gap_y: 400.0, scored: false };
+        let p = Pipe {
+            x: 0.0,
+            gap_y: 400.0,
+            scored: false,
+        };
         assert_eq!(p.top_h(), 400.0 - PIPE_GAP / 2.0);
         assert_eq!(p.bottom_y(), 400.0 + PIPE_GAP / 2.0);
         // The gap between the edges is exactly PIPE_GAP.
@@ -232,9 +252,9 @@ mod tests {
     #[test]
     fn flap_from_ready_starts_playing() {
         let mut g = Game::new();
-        assert!(g.state == State::Ready);
+        assert_eq!(g.state, State::Ready);
         g.flap();
-        assert!(g.state == State::Playing);
+        assert_eq!(g.state, State::Playing);
         assert_eq!(g.bird_v, FLAP_V);
     }
 
@@ -245,7 +265,7 @@ mod tests {
         g.bird_v = 300.0; // falling
         g.flap();
         assert_eq!(g.bird_v, FLAP_V);
-        assert!(g.state == State::Playing);
+        assert_eq!(g.state, State::Playing);
     }
 
     #[test]
@@ -255,11 +275,11 @@ mod tests {
         g.score = 4;
         g.death_flash = 0.0; // too soon
         g.flap();
-        assert!(g.state == State::Dead, "tap during lockout must not restart");
+        assert_eq!(g.state, State::Dead, "tap during lockout must not restart");
 
         g.death_flash = 0.7; // past the lockout
         g.flap();
-        assert!(g.state == State::Ready, "tap after lockout restarts");
+        assert_eq!(g.state, State::Ready, "tap after lockout restarts");
         assert_eq!(g.score, 0);
     }
 
@@ -267,7 +287,11 @@ mod tests {
     fn scoring_increments_once_per_pipe() {
         let mut g = Game::new();
         // A pipe fully behind the bird should score exactly once.
-        g.pipes.push(Pipe { x: BIRD_X - PIPE_W - 1.0, gap_y: 400.0, scored: false });
+        g.pipes.push(Pipe {
+            x: BIRD_X - PIPE_W - 1.0,
+            gap_y: 400.0,
+            scored: false,
+        });
         g.check_score();
         assert_eq!(g.score, 1);
         assert!(g.pipes[0].scored);
@@ -278,9 +302,34 @@ mod tests {
     #[test]
     fn pipe_not_yet_passed_does_not_score() {
         let mut g = Game::new();
-        g.pipes.push(Pipe { x: BIRD_X, gap_y: 400.0, scored: false });
+        g.pipes.push(Pipe {
+            x: BIRD_X,
+            gap_y: 400.0,
+            scored: false,
+        });
         g.check_score();
         assert_eq!(g.score, 0);
+    }
+
+    #[test]
+    fn spawned_pipes_keep_their_gap_inside_the_margins() {
+        let mut g = Game::new();
+        g.flap(); // Ready -> Playing
+        let mut steps = 0;
+        while g.pipes.is_empty() && steps < 1000 {
+            g.step(FIXED_DT);
+            steps += 1;
+        }
+        let p = g.pipes.first().expect("a pipe should spawn within seconds");
+        assert!(p.x >= W, "pipes spawn off-screen to the right");
+        // step() places the gap at least `margin` (90) from both the top of
+        // the screen and the ground.
+        assert!(p.top_h() >= 90.0, "top pipe too short: {}", p.top_h());
+        assert!(
+            p.bottom_y() <= GROUND_Y - 90.0,
+            "gap too low: {}",
+            p.bottom_y()
+        );
     }
 
     #[test]
@@ -298,7 +347,11 @@ mod tests {
         let mut g = Game::new();
         g.bird_y = 400.0;
         // Pipe overlapping the bird horizontally, gap centered on the bird.
-        g.pipes.push(Pipe { x: BIRD_X - PIPE_W / 2.0, gap_y: 400.0, scored: false });
+        g.pipes.push(Pipe {
+            x: BIRD_X - PIPE_W / 2.0,
+            gap_y: 400.0,
+            scored: false,
+        });
         assert!(!g.collides(), "centered in the gap should be clear");
 
         // Move the gap up so the bird is now inside the bottom pipe.
@@ -315,7 +368,11 @@ mod tests {
         g.step(FIXED_DT);
         let ceiling = BIRD_H / 2.0 - HIT_INSET_Y;
         assert!(g.bird_y >= ceiling, "bird should be clamped at the ceiling");
-        assert!(g.state == State::Playing, "the ceiling is a wall, not a hazard");
+        assert_eq!(
+            g.state,
+            State::Playing,
+            "the ceiling is a wall, not a hazard"
+        );
     }
 
     #[test]
@@ -326,7 +383,7 @@ mod tests {
         g.state = State::Dead;
         g.death_flash = 1.0;
         g.reset();
-        assert!(g.state == State::Ready);
+        assert_eq!(g.state, State::Ready);
         assert_eq!(g.best, 9, "best score survives a reset");
         assert_eq!(g.score, 0);
     }
@@ -336,7 +393,7 @@ mod tests {
         let mut g = Game::new();
         g.score = 7;
         g.die();
-        assert!(g.state == State::Dead);
+        assert_eq!(g.state, State::Dead);
         assert_eq!(g.best, 7);
     }
 }

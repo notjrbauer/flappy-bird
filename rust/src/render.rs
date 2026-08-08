@@ -28,7 +28,13 @@ fn blit(
 /// Draws a pipe with its cap at `y`, body running down to `y + h`.
 /// The cap keeps a fixed height instead of being stretched with the body,
 /// which is what the original SDL version did.
-fn draw_pipe_upright(ctx: &CanvasRenderingContext2d, img: &HtmlImageElement, x: f64, y: f64, h: f64) {
+fn draw_pipe_upright(
+    ctx: &CanvasRenderingContext2d,
+    img: &HtmlImageElement,
+    x: f64,
+    y: f64,
+    h: f64,
+) {
     let body_h = (h - PIPE_CAP_H).max(0.0);
     if body_h > 0.0 {
         blit(
@@ -41,7 +47,15 @@ fn draw_pipe_upright(ctx: &CanvasRenderingContext2d, img: &HtmlImageElement, x: 
             body_h,
         );
     }
-    blit(ctx, img, (0.0, 0.0, 52.0, PIPE_CAP_SH), x, y, PIPE_W, PIPE_CAP_H);
+    blit(
+        ctx,
+        img,
+        (0.0, 0.0, PIPE_CAP_SW, PIPE_CAP_SH),
+        x,
+        y,
+        PIPE_W,
+        PIPE_CAP_H,
+    );
 }
 
 /// Renders the whole frame: sky, pipes, ground, bird, then the HUD overlay.
@@ -72,7 +86,15 @@ pub fn draw(ctx: &CanvasRenderingContext2d, g: &Game, a: &Assets, dpr: f64) {
     let tiles = (W / GROUND_TILE_W).ceil() as i32 + 1;
     for i in 0..tiles {
         let x = (off + i as f64 * GROUND_TILE_W).round();
-        blit(ctx, &a.atlas, GROUND_SRC, x, GROUND_Y, GROUND_TILE_W + 1.0, GROUND_H);
+        blit(
+            ctx,
+            &a.atlas,
+            GROUND_SRC,
+            x,
+            GROUND_Y,
+            GROUND_TILE_W + 1.0,
+            GROUND_H,
+        );
     }
 
     // Bird, rotated about its centre.
@@ -100,7 +122,7 @@ pub fn draw(ctx: &CanvasRenderingContext2d, g: &Game, a: &Assets, dpr: f64) {
 }
 
 fn outlined_text(ctx: &CanvasRenderingContext2d, text: &str, x: f64, y: f64, size: f64) {
-    ctx.set_font(&format!("bold {}px 'Courier New', monospace", size));
+    ctx.set_font(&format!("bold {size}px 'Courier New', monospace"));
     ctx.set_text_align("center");
     ctx.set_line_width(size / 6.0);
     ctx.set_line_join("round");
@@ -122,7 +144,10 @@ fn draw_hud(ctx: &CanvasRenderingContext2d, g: &Game) {
         State::Dead => {
             // Quick white flash on impact.
             if g.death_flash < 0.15 {
-                ctx.set_fill_style_str(&format!("rgba(255,255,255,{})", 1.0 - g.death_flash / 0.15));
+                ctx.set_fill_style_str(&format!(
+                    "rgba(255,255,255,{})",
+                    1.0 - g.death_flash / 0.15
+                ));
                 ctx.fill_rect(0.0, 0.0, W, H);
             }
             outlined_text(ctx, "GAME OVER", W / 2.0, 260.0, 52.0);

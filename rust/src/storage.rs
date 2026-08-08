@@ -24,11 +24,12 @@ pub fn save_best(v: u32) {
     }
 }
 
+/// Host stand-in: there is no storage, so the best score starts at 0.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn load_best() -> u32 {
-    let _ = BEST_KEY;
     0
 }
 
+/// Host stand-in: the score is dropped.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_best(_v: u32) {}

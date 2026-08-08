@@ -1,4 +1,4 @@
-//! Flappy Bird — Rust + WebAssembly port.
+//! Flappy Bird: Rust + WebAssembly port.
 //!
 //! Module layout:
 //! - [`config`]  tunable constants and sprite-atlas coordinates

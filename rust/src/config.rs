@@ -21,6 +21,7 @@ pub const GROUND_SRC: (f64, f64, f64, f64) = (292.0, 0.0, 168.0, 56.0);
 pub const GROUND_TILE_W: f64 = 336.0;
 
 // pipe.png is 52x320: a 24px cap at full width, then a body inset 2px per side.
+pub const PIPE_CAP_SW: f64 = 52.0;
 pub const PIPE_CAP_SH: f64 = 24.0;
 pub const PIPE_BODY_SY: f64 = 24.0;
 pub const PIPE_BODY_SX: f64 = 2.0;

@@ -94,7 +94,12 @@ matters in that case.
 ## Layout
 
 ```
-src/lib.rs        game + renderer (the whole port)
+src/lib.rs        crate wiring and the wasm entry point
+src/config.rs     tunable constants and sprite-atlas coordinates
+src/game.rs       state machine, physics, collision, scoring (host-testable)
+src/render.rs     canvas 2D drawing
+src/storage.rs    high score via localStorage
+src/app.rs        boot: canvas, input, assets, the render loop
 src/worker.js     asset serving, MIME and cache headers
 static/index.html host page
 static/assets/    sprite sheet and pipe texture

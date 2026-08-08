@@ -1,12 +1,15 @@
 //! Boot: wires up the canvas, input handlers, asset loading, and the
 //! fixed-timestep render loop.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement, KeyboardEvent, MouseEvent};
+use web_sys::{
+    CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement, KeyboardEvent, MouseEvent,
+    TouchEvent,
+};
 
 use crate::config::{FIXED_DT, H, W};
 use crate::game::Game;
@@ -25,47 +28,37 @@ pub fn run() -> Result<(), JsValue> {
     canvas.set_width((W * dpr) as u32);
     canvas.set_height((H * dpr) as u32);
 
-    let ctx: CanvasRenderingContext2d =
-        canvas.get_context("2d")?.ok_or("no 2d context")?.dyn_into()?;
+    let ctx: CanvasRenderingContext2d = canvas
+        .get_context("2d")?
+        .ok_or("no 2d context")?
+        .dyn_into()?;
 
     let game = Rc::new(RefCell::new(Game::new()));
 
     install_input(&document, &canvas, &game);
 
-    // Wait for both textures before starting the loop.
-    let pending = Rc::new(RefCell::new(2u32));
-    let ready = Rc::new(RefCell::new(false));
+    // The loop idles until both textures have loaded and this reaches zero.
+    let pending = Rc::new(Cell::new(2u32));
 
     let atlas = {
         let p = pending.clone();
-        let r = ready.clone();
-        load_image("assets/FlappySprite.png", move || {
-            *p.borrow_mut() -= 1;
-            if *p.borrow() == 0 {
-                *r.borrow_mut() = true;
-            }
-        })
+        load_image("assets/FlappySprite.png", move || p.set(p.get() - 1))
     };
     let pipe = {
         let p = pending.clone();
-        let r = ready.clone();
-        load_image("assets/pipe.png", move || {
-            *p.borrow_mut() -= 1;
-            if *p.borrow() == 0 {
-                *r.borrow_mut() = true;
-            }
-        })
+        load_image("assets/pipe.png", move || p.set(p.get() - 1))
     };
     let assets = Assets { atlas, pipe };
 
-    // Fixed-timestep loop driven by requestAnimationFrame.
-    let f = Rc::new(RefCell::new(None::<Closure<dyn FnMut(f64)>>));
-    let g2 = f.clone();
+    // Fixed-timestep loop driven by requestAnimationFrame. The callback has
+    // to reschedule itself, hence the shared slot it is stored in.
+    let frame_cb = Rc::new(RefCell::new(None::<Closure<dyn FnMut(f64)>>));
+    let next_frame = frame_cb.clone();
     let mut last = 0.0f64;
     let mut acc = 0.0f64;
 
-    *g2.borrow_mut() = Some(Closure::new(move |now: f64| {
-        if *ready.borrow() {
+    *frame_cb.borrow_mut() = Some(Closure::new(move |now: f64| {
+        if pending.get() == 0 {
             if last == 0.0 {
                 last = now;
             }
@@ -79,10 +72,19 @@ pub fn run() -> Result<(), JsValue> {
             }
             draw(&ctx, &game.borrow(), &assets, dpr);
         }
-        request_animation_frame(f.borrow().as_ref().unwrap());
+        let cb = next_frame.borrow();
+        request_animation_frame(
+            cb.as_ref()
+                .expect("frame callback is installed before the loop starts"),
+        );
     }));
 
-    request_animation_frame(g2.borrow().as_ref().unwrap());
+    request_animation_frame(
+        frame_cb
+            .borrow()
+            .as_ref()
+            .expect("frame callback was just installed"),
+    );
     Ok(())
 }
 
@@ -103,7 +105,7 @@ fn install_input(
     }
     {
         let g = game.clone();
-        let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+        let cb = Closure::<dyn FnMut(TouchEvent)>::new(move |e: TouchEvent| {
             e.prevent_default();
             g.borrow_mut().flap();
         });
@@ -113,8 +115,7 @@ fn install_input(
     {
         let g = game.clone();
         let cb = Closure::<dyn FnMut(KeyboardEvent)>::new(move |e: KeyboardEvent| {
-            let k = e.key();
-            if k == " " || k == "ArrowUp" || k == "w" || k == "W" {
+            if matches!(e.key().as_str(), " " | "ArrowUp" | "w" | "W") {
                 e.prevent_default();
                 g.borrow_mut().flap();
             }
@@ -125,17 +126,18 @@ fn install_input(
 }
 
 /// Creates an `HtmlImageElement`, fires `on_done` once it has loaded.
-fn load_image(src: &str, on_done: impl Fn() + 'static) -> HtmlImageElement {
-    let img = HtmlImageElement::new().unwrap();
-    let cb = Closure::<dyn FnMut()>::new(move || on_done());
+fn load_image(src: &str, on_done: impl FnMut() + 'static) -> HtmlImageElement {
+    let img = HtmlImageElement::new().expect("failed to create an <img> element");
+    let cb = Closure::<dyn FnMut()>::new(on_done);
     img.set_onload(Some(cb.as_ref().unchecked_ref()));
     cb.forget();
     img.set_src(src);
     img
 }
 
+/// Schedules `f` for the browser's next animation frame.
 fn request_animation_frame(f: &Closure<dyn FnMut(f64)>) {
     let _ = web_sys::window()
-        .unwrap()
+        .expect("no window")
         .request_animation_frame(f.as_ref().unchecked_ref());
 }
